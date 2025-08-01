@@ -3,6 +3,7 @@ import base64
 import os
 import shlex
 import shutil
+import time
 from enum import StrEnum
 from pathlib import Path
 from typing import Literal, TypedDict, cast, get_args
@@ -94,7 +95,8 @@ class BaseComputerTool:
     height: int
     display_num: int | None
 
-    _screenshot_delay = 2.0
+    _screenshot_delay_interval = 0.1
+    _max_screenshot_delay = 2.0
     _scaling_enabled = True
 
     @property
@@ -247,14 +249,28 @@ class BaseComputerTool:
             )
         raise ToolError(f"Failed to take screenshot: {result.error}")
 
+    async def smart_wait(self, initial_image: str | None):
+        start = time.time()
+        while time.time() - start < self._max_screenshot_delay:
+            await asyncio.sleep(self._screenshot_delay_interval)
+            new_image = (await self.screenshot()).base64_image
+            if new_image != initial_image:
+                print("Waited for", time.time() - start, "seconds")
+                return
+        print("Waited for", time.time() - start, "seconds")
+
     async def shell(self, command: str, take_screenshot=True) -> ToolResult:
         """Run a shell command and return the output, error, and optionally a screenshot."""
+        initial_image = None
+        if take_screenshot:
+            initial_image = (await self.screenshot()).base64_image
+
         _, stdout, stderr = await run(command)
         base64_image = None
 
         if take_screenshot:
             # delay to let things settle before taking a screenshot
-            await asyncio.sleep(self._screenshot_delay)
+            await self.smart_wait(initial_image)
             base64_image = (await self.screenshot()).base64_image
 
         return ToolResult(output=stdout, error=stderr, base64_image=base64_image)
