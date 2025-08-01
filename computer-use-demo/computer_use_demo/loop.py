@@ -141,7 +141,7 @@ async def sampling_loop(
                 # 1 for the initial user prompt,
                 # Then 3 pairs of messages;
                 # Each pair consists of a computer use response and subsequent tool call result.
-                messages=messages[:1] + messages[-6:],
+                messages=messages[:1] + messages[-min(len(messages) - 1, 6) :],
                 model=model,
                 system=[system],
                 tools=tool_collection.to_params(),
