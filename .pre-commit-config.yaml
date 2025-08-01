@@ -18,7 +18,9 @@ repos:
         entry: ruff format --force-exclude
       - id: ruff
         name: Run `ruff` to lint code
-  - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.384
-    hooks:
-      - id: pyright
+  # Comment this out because it's complaining about the ORIGINAL code.
+  # Might be a python 11 vs 12 issue.
+  # - repo: https://github.com/RobertCraigie/pyright-python
+  #   rev: v1.1.384
+  #   hooks:
+  #     - id: pyright

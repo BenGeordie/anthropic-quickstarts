@@ -138,7 +138,10 @@ async def sampling_loop(
         try:
             raw_response = client.beta.messages.with_raw_response.create(
                 max_tokens=max_tokens,
-                messages=messages,
+                # 1 for the initial user prompt,
+                # Then 3 pairs of messages;
+                # Each pair consists of a computer use response and subsequent tool call result.
+                messages=messages[:1] + messages[-6:],
                 model=model,
                 system=[system],
                 tools=tool_collection.to_params(),
