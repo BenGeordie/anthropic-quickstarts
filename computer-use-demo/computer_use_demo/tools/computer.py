@@ -248,8 +248,10 @@ class BaseComputerTool:
             )
         raise ToolError(f"Failed to take screenshot: {result.error}")
 
-    async def smart_wait(self, initial_image: str | None):
-        previous_image = initial_image
+    async def screenshot_after_screen_changes(
+        self, initial_image: str | None
+    ) -> str | None:
+        last_image = initial_image
         start = time.time()
         change_initiated = False
         while time.time() - start < self._max_screenshot_delay:
@@ -258,11 +260,12 @@ class BaseComputerTool:
             if not change_initiated and new_image != initial_image:
                 change_initiated = True
             # Once change is initiated, wait until screenshot stabilizes.
-            elif change_initiated and new_image == previous_image:
+            elif change_initiated and new_image == last_image:
                 print("Waited for", time.time() - start, "seconds")
-                return
-            previous_image = new_image
+                return new_image
+            last_image = new_image
         print("Waited for", time.time() - start, "seconds")
+        return last_image
 
     async def shell(self, command: str, take_screenshot=True) -> ToolResult:
         """Run a shell command and return the output, error, and optionally a screenshot."""
@@ -275,8 +278,7 @@ class BaseComputerTool:
 
         if take_screenshot:
             # delay to let things settle before taking a screenshot
-            await self.smart_wait(initial_image)
-            base64_image = (await self.screenshot()).base64_image
+            base64_image = await self.screenshot_after_screen_changes(initial_image)
 
         return ToolResult(output=stdout, error=stderr, base64_image=base64_image)
 
