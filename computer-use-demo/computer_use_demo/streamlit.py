@@ -136,6 +136,8 @@ def setup_state():
         st.session_state.token_efficient_tools_beta = False
     if "in_sampling_loop" not in st.session_state:
         st.session_state.in_sampling_loop = False
+    if "api_call_times" not in st.session_state:
+        st.session_state.api_call_times = []
 
 
 def _reset_model():
@@ -267,6 +269,7 @@ async def main():
 
     with chat:
         # render past chats
+        elapsed_time_index = 0
         for message in st.session_state.messages:
             if isinstance(message["content"], str):
                 _render_message(message["role"], message["content"])
@@ -279,9 +282,25 @@ async def main():
                             Sender.TOOL, st.session_state.tools[block["tool_use_id"]]
                         )
                     else:
+                        # Check if this is an assistant text message and we have elapsed times
+                        elapsed_time = None
+                        if (
+                            message["role"] == Sender.BOT
+                            and isinstance(block, dict)
+                            and block.get("type") == "text"
+                            and elapsed_time_index
+                            < len(st.session_state.api_call_times)
+                        ):
+                            elapsed_time = st.session_state.api_call_times[
+                                elapsed_time_index
+                            ]
+                            elapsed_time_index += 1
+
                         _render_message(
                             message["role"],
                             cast(BetaContentBlockParam | ToolResult, block),
+                            elapsed_time=elapsed_time,
+                            record=True,
                         )
 
         # render past http exchanges
@@ -299,7 +318,7 @@ async def main():
                     ],
                 }
             )
-            _render_message(Sender.USER, new_message)
+            _render_message(Sender.USER, new_message, record=True)
 
         try:
             most_recent_message = st.session_state["messages"][-1]
@@ -312,11 +331,15 @@ async def main():
 
         with track_sampling_loop():
             # run the agent sampling loop with the newest message
-            st.session_state.messages = await sampling_loop(
+            (
+                st.session_state.messages,
+                st.session_state.api_call_times,
+            ) = await sampling_loop(
                 system_prompt_suffix=st.session_state.custom_system_prompt,
                 model=st.session_state.model,
                 provider=st.session_state.provider,
                 messages=st.session_state.messages,
+                api_call_times=st.session_state.api_call_times,
                 output_callback=partial(_render_message, Sender.BOT),
                 tool_output_callback=partial(
                     _tool_output_callback, tool_state=st.session_state.tools
@@ -480,9 +503,25 @@ def _render_error(error: Exception):
     st.error(f"**{error.__class__.__name__}**\n\n{body}", icon=":material/error:")
 
 
+def _log_to_file(sender: Sender, message: str):
+    """Log message to chat.log file in the mounted volume."""
+    message = f"[{sender.upper()}] {message}"
+    try:
+        log_dir = PosixPath("~/logs").expanduser()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "chat.log"
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{timestamp}] {message}\n")
+    except Exception as e:
+        st.write(f"Debug: Error logging to file: {e}")
+
+
 def _render_message(
     sender: Sender,
     message: str | BetaContentBlockParam | ToolResult,
+    elapsed_time: float | None = None,
+    record: bool = False,
 ):
     """Convert input from the user or output from the agent to a streamlit message."""
     # streamlit's hotreloading breaks isinstance checks, so we need to check for class names
@@ -494,6 +533,12 @@ def _render_message(
         and not hasattr(message, "output")
     ):
         return
+
+    def maybe_add_elapsed_time(message: str) -> str:
+        if elapsed_time is not None:
+            return f"({elapsed_time:.2f} sec.) {message}"
+        return message
+
     with st.chat_message(sender):
         if is_tool_result:
             message = cast(ToolResult, message)
@@ -508,17 +553,25 @@ def _render_message(
                 st.image(base64.b64decode(message.base64_image))
         elif isinstance(message, dict):
             if message["type"] == "text":
-                st.write(message["text"])
+                text_content = maybe_add_elapsed_time(message["text"])
+                st.write(text_content)
+                if record:
+                    _log_to_file(sender, text_content)
             elif message["type"] == "thinking":
                 thinking_content = message.get("thinking", "")
                 st.markdown(f"[Thinking]\n\n{thinking_content}")
             elif message["type"] == "tool_use":
-                st.code(f'Tool Use: {message["name"]}\nInput: {message["input"]}')
+                tool_content = f'Tool Use: {message["name"]}\nInput: {message["input"]}'
+                st.code(tool_content)
+                if record:
+                    _log_to_file(sender, tool_content)
             else:
                 # only expected return types are text and tool_use
                 raise Exception(f'Unexpected response type {message["type"]}')
         else:
-            st.markdown(message)
+            st.markdown(maybe_add_elapsed_time(message))
+            if record:
+                _log_to_file(sender, message)
 
 
 if __name__ == "__main__":

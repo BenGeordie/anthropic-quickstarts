@@ -74,7 +74,8 @@ async def sampling_loop(
     provider: APIProvider,
     system_prompt_suffix: str,
     messages: list[BetaMessageParam],
-    output_callback: Callable[[BetaContentBlockParam], None],
+    api_call_times: list[float],
+    output_callback: Callable[[BetaContentBlockParam, float | None, bool], None],
     tool_output_callback: Callable[[ToolResult, str], None],
     api_response_callback: Callable[
         [httpx.Request, httpx.Response | object | None, Exception | None], None
@@ -151,13 +152,15 @@ async def sampling_loop(
                 extra_body=extra_body,
             )
             api_call_end = time.time()
-            print(f"API call took {api_call_end - api_call_start} seconds")
+            elapsed_time = api_call_end - api_call_start
+            api_call_times.append(elapsed_time)
+            print(f"API call took {elapsed_time} seconds")
         except (APIStatusError, APIResponseValidationError) as e:
             api_response_callback(e.request, e.response, e)
-            return messages
+            return messages, api_call_times
         except APIError as e:
             api_response_callback(e.request, e.body, e)
-            return messages
+            return messages, api_call_times
 
         api_response_callback(
             raw_response.http_response.request, raw_response.http_response, None
@@ -175,7 +178,7 @@ async def sampling_loop(
 
         tool_result_content: list[BetaToolResultBlockParam] = []
         for content_block in response_params:
-            output_callback(content_block)
+            output_callback(content_block, api_call_times[-1], True)
             if content_block["type"] == "tool_use":
                 result = await tool_collection.run(
                     name=content_block["name"],
@@ -187,7 +190,7 @@ async def sampling_loop(
                 tool_output_callback(result, content_block["id"])
 
         if not tool_result_content:
-            return messages
+            return messages, api_call_times
 
         messages.append({"content": tool_result_content, "role": "user"})
 

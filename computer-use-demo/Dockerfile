@@ -101,4 +101,7 @@ ENV DISPLAY_NUM=$DISPLAY_NUM
 ENV HEIGHT=$HEIGHT
 ENV WIDTH=$WIDTH
 
+# Create volume mount point for analysis logs
+VOLUME ["/home/$USERNAME/logs"]
+
 ENTRYPOINT [ "./entrypoint.sh" ]

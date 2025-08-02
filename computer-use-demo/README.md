@@ -165,6 +165,15 @@ When implementing computer use yourself, we recommend using XGA resolution (1024
 
 ## Development
 
+### API Call Analysis and Logging
+
+The container generates detailed analysis logs of API calls in `~/logs/`. This includes:
+- Complete chat conversation history with timestamps
+- API call response times displayed with assistant messages
+- Screenshots and message content for each interaction
+
+Mount the logs volume (`-v $HOME/logs:/home/computeruse/logs`) to access these analysis files from your host system. The logs are stored in `chat.log` within the mounted directory and can be used for performance analysis, debugging, or conversation review.
+
 ```bash
 ./setup.sh  # configure venv, install development dependencies, and install pre-commit hooks
 docker build . -t computer-use-demo:local  # manually build the docker image (optional)
@@ -173,6 +182,7 @@ docker run \
     -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
     -v $(pwd)/computer_use_demo:/home/computeruse/computer_use_demo/ `# mount local python module for development` \
     -v $HOME/.anthropic:/home/computeruse/.anthropic \
+    -v $HOME/logs:/home/computeruse/logs \
     -p 5900:5900 \
     -p 8501:8501 \
     -p 6080:6080 \
