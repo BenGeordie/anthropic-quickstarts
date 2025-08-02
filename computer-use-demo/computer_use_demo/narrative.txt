@@ -34,3 +34,5 @@ To speed up the API calls, we need to see patterns between the information that 
 So let’s build one that shows the screenshot that is fed into the model, the model’s thought process, and the elapsed time. (44b80fe97fc3aebf4fb4d1c07f81496e40c06fe6)
 
 Let’s also sort the logs by API call time to make it easier to find patterns. (a13e47ca056c905b56299430b1432ffc97323d60)
+
+I first reviewed the chronologically sorted logs (not the time-elapsed-sorted one) and annotated my findings (586f3153fe77ab562994185d9d17aae63dfaf935)
