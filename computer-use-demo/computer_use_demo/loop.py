@@ -75,7 +75,7 @@ async def sampling_loop(
     system_prompt_suffix: str,
     messages: list[BetaMessageParam],
     api_call_times: list[float],
-    output_callback: Callable[[BetaContentBlockParam, float | None, bool], None],
+    output_callback: Callable[[BetaContentBlockParam, float | None], None],
     tool_output_callback: Callable[[ToolResult, str], None],
     api_response_callback: Callable[
         [httpx.Request, httpx.Response | object | None, Exception | None], None
@@ -178,7 +178,7 @@ async def sampling_loop(
 
         tool_result_content: list[BetaToolResultBlockParam] = []
         for content_block in response_params:
-            output_callback(content_block, api_call_times[-1], True)
+            output_callback(content_block, api_call_times[-1])
             if content_block["type"] == "tool_use":
                 result = await tool_collection.run(
                     name=content_block["name"],

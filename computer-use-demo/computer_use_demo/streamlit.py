@@ -340,7 +340,7 @@ async def main():
                 provider=st.session_state.provider,
                 messages=st.session_state.messages,
                 api_call_times=st.session_state.api_call_times,
-                output_callback=partial(_render_message, Sender.BOT),
+                output_callback=partial(_render_message, Sender.BOT, record=True),
                 tool_output_callback=partial(
                     _tool_output_callback, tool_state=st.session_state.tools
                 ),
@@ -461,7 +461,7 @@ def _tool_output_callback(
 ):
     """Handle a tool output by storing it to state and rendering it."""
     tool_state[tool_id] = tool_output
-    _render_message(Sender.TOOL, tool_output)
+    _render_message(Sender.TOOL, tool_output, record=True)
 
 
 def _render_api_response(
@@ -504,17 +504,48 @@ def _render_error(error: Exception):
 
 
 def _log_to_file(sender: Sender, message: str):
-    """Log message to chat.log file in the mounted volume."""
-    message = f"[{sender.upper()}] {message}"
+    """Log message to chat.md file in the mounted volume in markdown format."""
     try:
         log_dir = PosixPath("~/logs").expanduser()
         log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / "chat.log"
+        log_file = log_dir / "chat.md"
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Format as markdown with sender headers
+        sender_header = f"## {sender.upper()}"
+        formatted_message = f"{sender_header}\n*{timestamp}*\n\n{message}\n\n---\n\n"
+
         with open(log_file, "a", encoding="utf-8") as f:
-            f.write(f"[{timestamp}] {message}\n")
+            f.write(formatted_message)
     except Exception as e:
         st.write(f"Debug: Error logging to file: {e}")
+
+
+def _save_screenshot_to_file(base64_image: str, sender: Sender) -> str:
+    print("Saving screenshot to file")
+    """Save screenshot to logs/screenshots folder and return the relative path."""
+    try:
+        log_dir = PosixPath("~/logs").expanduser()
+        screenshots_dir = log_dir / "screenshots"
+        screenshots_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[
+            :-3
+        ]  # Include milliseconds
+        filename = f"{sender.lower()}_{timestamp}.png"
+        screenshot_path = screenshots_dir / filename
+
+        # Decode and save the image
+        image_data = base64.b64decode(base64_image)
+        with open(screenshot_path, "wb") as f:
+            f.write(image_data)
+
+        # Return relative path for markdown reference
+        return f"screenshots/{filename}"
+    except Exception as e:
+        st.write(f"Debug: Error saving screenshot: {e}")
+        return ""
 
 
 def _render_message(
@@ -542,15 +573,39 @@ def _render_message(
     with st.chat_message(sender):
         if is_tool_result:
             message = cast(ToolResult, message)
+            log_content = []
+
             if message.output:
                 if message.__class__.__name__ == "CLIResult":
                     st.code(message.output)
+                    log_content.append(f"```\n{message.output}\n```")
                 else:
                     st.markdown(message.output)
+                    log_content.append(message.output)
+
             if message.error:
                 st.error(message.error)
-            if message.base64_image and not st.session_state.hide_images:
-                st.image(base64.b64decode(message.base64_image))
+                log_content.append(f"**Error:** {message.error}")
+
+            if message.base64_image:
+                print("Has image. Should have saved.")
+                if not st.session_state.hide_images:
+                    st.image(base64.b64decode(message.base64_image))
+
+                if record:
+                    # Save screenshot and add markdown reference (even if hidden in UI)
+                    screenshot_path = _save_screenshot_to_file(
+                        message.base64_image, sender
+                    )
+                    if screenshot_path:
+                        log_content.append(f"![Screenshot]({screenshot_path})")
+
+            # Log all tool result content, or at least indicate it's a tool result
+            if record:
+                if log_content:
+                    _log_to_file(sender, "\n\n".join(log_content))
+                else:
+                    _log_to_file(sender, "*Tool result (no output)*")
         elif isinstance(message, dict):
             if message["type"] == "text":
                 text_content = maybe_add_elapsed_time(message["text"])
@@ -559,19 +614,25 @@ def _render_message(
                     _log_to_file(sender, text_content)
             elif message["type"] == "thinking":
                 thinking_content = message.get("thinking", "")
-                st.markdown(f"[Thinking]\n\n{thinking_content}")
+                formatted_thinking = f"[Thinking]\n\n{thinking_content}"
+                st.markdown(formatted_thinking)
+                if record:
+                    _log_to_file(sender, f"**[Thinking]**\n\n{thinking_content}")
             elif message["type"] == "tool_use":
                 tool_content = f'Tool Use: {message["name"]}\nInput: {message["input"]}'
                 st.code(tool_content)
                 if record:
-                    _log_to_file(sender, tool_content)
+                    # Format tool use as markdown code block
+                    markdown_tool_content = f'**Tool Use:** `{message["name"]}`\n\n**Input:**\n```json\n{message["input"]}\n```'
+                    _log_to_file(sender, markdown_tool_content)
             else:
                 # only expected return types are text and tool_use
                 raise Exception(f'Unexpected response type {message["type"]}')
         else:
-            st.markdown(maybe_add_elapsed_time(message))
+            formatted_message = maybe_add_elapsed_time(message)
+            st.markdown(formatted_message)
             if record:
-                _log_to_file(sender, message)
+                _log_to_file(sender, formatted_message)
 
 
 if __name__ == "__main__":
