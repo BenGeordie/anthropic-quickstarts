@@ -25,5 +25,3 @@ env/
 dist/
 build/
 *.egg-info/
-
-*chat.log
