@@ -95,7 +95,6 @@ class BaseComputerTool:
     height: int
     display_num: int | None
 
-    _screenshot_delay_interval = 0.1
     _max_screenshot_delay = 2.0
     _scaling_enabled = True
 
@@ -250,13 +249,19 @@ class BaseComputerTool:
         raise ToolError(f"Failed to take screenshot: {result.error}")
 
     async def smart_wait(self, initial_image: str | None):
+        previous_image = initial_image
         start = time.time()
+        change_initiated = False
         while time.time() - start < self._max_screenshot_delay:
-            await asyncio.sleep(self._screenshot_delay_interval)
             new_image = (await self.screenshot()).base64_image
-            if new_image != initial_image:
+            # Keep looping until screenshot changes.
+            if not change_initiated and new_image != initial_image:
+                change_initiated = True
+            # Once change is initiated, wait until screenshot stabilizes.
+            elif change_initiated and new_image == previous_image:
                 print("Waited for", time.time() - start, "seconds")
                 return
+            previous_image = new_image
         print("Waited for", time.time() - start, "seconds")
 
     async def shell(self, command: str, take_screenshot=True) -> ToolResult:
