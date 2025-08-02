@@ -522,7 +522,6 @@ def _log_to_file(sender: Sender, message: str):
 
 
 def _save_screenshot_to_file(base64_image: str, sender: Sender) -> str:
-    print("Saving screenshot to file")
     """Save screenshot to logs/screenshots folder and return the relative path."""
     try:
         log_dir = PosixPath("~/logs").expanduser()
@@ -588,7 +587,6 @@ def _render_message(
                 log_content.append(f"**Error:** {message.error}")
 
             if message.base64_image:
-                print("Has image. Should have saved.")
                 if not st.session_state.hide_images:
                     st.image(base64.b64decode(message.base64_image))
 
