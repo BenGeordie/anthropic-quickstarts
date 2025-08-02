@@ -3,6 +3,7 @@ Agentic sampling loop that calls the Anthropic API and local implementation of a
 """
 
 import platform
+import time
 from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
@@ -136,6 +137,7 @@ async def sampling_loop(
         # implementation may be able call the SDK directly with:
         # `response = client.messages.create(...)` instead.
         try:
+            api_call_start = time.time()
             raw_response = client.beta.messages.with_raw_response.create(
                 max_tokens=max_tokens,
                 # 1 for the initial user prompt,
@@ -148,6 +150,8 @@ async def sampling_loop(
                 betas=betas,
                 extra_body=extra_body,
             )
+            api_call_end = time.time()
+            print(f"API call took {api_call_end - api_call_start} seconds")
         except (APIStatusError, APIResponseValidationError) as e:
             api_response_callback(e.request, e.response, e)
             return messages
