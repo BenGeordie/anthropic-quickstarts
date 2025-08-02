@@ -1,0 +1,36 @@
+If you’ve tried computer use, then you know that it’s a game changer. It’s intelligent, it can perform any task that you can do on the computer, and it’s fast… for the first few iterations at least.
+
+Each iteration gets slower because in order to do perform the actions, it must see the entire history of actions. The more actions it takes, the longer this history gets, the longer it takes to figure out the next step.
+
+Anyone who has taken an introductory algorithms class would notice that the runtime scales quadratically with the number of steps. When your runtime increases, so does your cost, so that also scales quadratically with the number of steps.
+
+So let’s think about how we can optimize it. Let’s see how well it works if it only sees the last 3 actions. (1cae4522444f3c24abcd1760c7c5e24325492173)
+
+It’s already a lot faster!
+
+The other thing we notice is that there’s a blanket 2 second wait whenever we take a screenshot, and it always takes a screenshot. This is so that we can wait for the action to take effect. But sometimes, we don’t need it to wait that long because the action is instantaneous. So why not detect when the screen changes and stop waiting then?
+
+With this code change, we see that we were able to wait for much shorter periods of time, from 2 seconds to an average of about 0.2s. (a60f58813914a6ffa2e5dca1ff9cfd49a096c764)
+However… we now see a different problem; sometimes it’s too hurried. It doesn’t know when a change is in progress.
+
+So let’s make it so that it waits until the screen changes and THEN stabilizes. (c5891ff4dced868e9c360703e314b55fca34bda5)
+Now the speedup is not as impressive; we’re only seeing 2-3x speedup when it does happen instead of the 10x wait-time speedup we saw before, but it’s still a speedup regardless, and it’s more stable.
+
+Let’s not waste a perfectly good screenshot. (3d7f185f77132742eaad84063da81b089a009486)
+
+We’ve gone for the low hanging fruits. What’s next?
+
+Right now the bottlenecks are:
+1. the actual application (in this case Uber Eats)
+2. Calls to the computer use model (median is about 4 seconds, goes up to 7 seconds). (a25aa6f306d67f73b6be9f7b42e80472e177fa00)
+
+We can’t do anything about number 1 other than maybe purchasing a faster internet connection, which I’m too cheap to do.
+So we can instead think of ways to call the model less, speed up the API calls, or a combination of both.
+
+To call the model less, we need to ask, are there ways that we can reliably determine when we don’t need an intelligent model? Maybe add a set of tools to determine whether this condition is met and another set of tools to handle these cases. To do so, we need to first know what the AI does at each step by developing some logging tools
+
+To speed up the API calls, we need to see patterns between the information that is being passed to the model in each call, the thoughts inferenced by the model during the call, and the resulting elapsed time. Hopefully, we’ll find patterns that help us identify ways to speed up the API calls. This also requires logging tools.
+
+So let’s build one that shows the screenshot that is fed into the model, the model’s thought process, and the elapsed time. (44b80fe97fc3aebf4fb4d1c07f81496e40c06fe6)
+
+Let’s also sort the logs by API call time to make it easier to find patterns. (a13e47ca056c905b56299430b1432ffc97323d60)
