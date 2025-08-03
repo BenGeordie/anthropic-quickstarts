@@ -68,6 +68,19 @@ SYSTEM_PROMPT = f"""<SYSTEM_CAPABILITY>
 </IMPORTANT>"""
 
 
+async def run_single_tool_call(
+    tool_version: ToolVersion,
+    tool_name: str,
+    tool_input: dict[str, Any],
+):
+    tool_group = TOOL_GROUPS_BY_VERSION[tool_version]
+    tool_collection = ToolCollection(*(ToolCls() for ToolCls in tool_group.tools))
+    return await tool_collection.run(
+        name=tool_name,
+        tool_input=tool_input,
+    )
+
+
 async def sampling_loop(
     *,
     model: str,

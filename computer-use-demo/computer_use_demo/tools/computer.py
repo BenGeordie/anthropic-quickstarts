@@ -95,7 +95,7 @@ class BaseComputerTool:
     height: int
     display_num: int | None
 
-    _max_screenshot_delay = 2.0
+    _max_screenshot_delay = 5.0
     _scaling_enabled = True
 
     @property
@@ -258,10 +258,12 @@ class BaseComputerTool:
             new_image = (await self.screenshot()).base64_image
             # Keep looping until screenshot changes.
             if not change_initiated and new_image != initial_image:
+                print("Change initiated")
                 change_initiated = True
             # Once change is initiated, wait until screenshot stabilizes.
             elif change_initiated and new_image == last_image:
-                print("Waited for", time.time() - start, "seconds")
+                print("Change stabilized")
+                print("Only waited for", time.time() - start, "seconds")
                 return new_image
             last_image = new_image
         print("Waited for", time.time() - start, "seconds")

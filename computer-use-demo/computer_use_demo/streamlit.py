@@ -4,6 +4,7 @@ Entrypoint for streamlit, see https://docs.streamlit.io/
 
 import asyncio
 import base64
+import json
 import os
 import subprocess
 import traceback
@@ -27,6 +28,7 @@ from streamlit.delta_generator import DeltaGenerator
 
 from computer_use_demo.loop import (
     APIProvider,
+    run_single_tool_call,
     sampling_loop,
 )
 from computer_use_demo.tools import ToolResult, ToolVersion
@@ -138,6 +140,14 @@ def setup_state():
         st.session_state.in_sampling_loop = False
     if "api_call_times" not in st.session_state:
         st.session_state.api_call_times = []
+
+
+def reset_state():
+    st.session_state.messages = []
+    st.session_state.responses = {}
+    st.session_state.tools = {}
+    st.session_state.in_sampling_loop = False
+    st.session_state.api_call_times = []
 
 
 def _reset_model():
@@ -262,102 +272,138 @@ async def main():
         else:
             st.session_state.auth_validated = True
 
-    chat, http_logs = st.tabs(["Chat", "HTTP Exchange Logs"])
-    new_message = st.chat_input(
-        "Type a message to send to Claude to control the computer..."
-    )
+    interactive, dev = st.tabs(["Interactive", "Dev"])
 
-    with chat:
-        # render past chats
-        elapsed_time_index = 0
-        for message in st.session_state.messages:
-            if isinstance(message["content"], str):
-                _render_message(message["role"], message["content"])
-            elif isinstance(message["content"], list):
-                for block in message["content"]:
-                    # the tool result we send back to the Anthropic API isn't sufficient to render all details,
-                    # so we store the tool use responses
-                    if isinstance(block, dict) and block["type"] == "tool_result":
-                        _render_message(
-                            Sender.TOOL, st.session_state.tools[block["tool_use_id"]]
-                        )
-                    else:
-                        # Check if this is an assistant text message and we have elapsed times
-                        elapsed_time = None
-                        if (
-                            message["role"] == Sender.BOT
-                            and isinstance(block, dict)
-                            and block.get("type") == "text"
-                            and elapsed_time_index
-                            < len(st.session_state.api_call_times)
-                        ):
-                            elapsed_time = st.session_state.api_call_times[
-                                elapsed_time_index
-                            ]
-                            elapsed_time_index += 1
+    with dev:
+        if st.button("Reset VM and State", type="primary"):
+            with st.spinner("Resetting..."):
+                reset_state()
+                subprocess.run("pkill Xvfb; pkill tint2", shell=True)  # noqa: ASYNC221
+                await asyncio.sleep(1)
+                subprocess.run("./start_all.sh", shell=True)  # noqa: ASYNC221
 
-                        _render_message(
-                            message["role"],
-                            cast(BetaContentBlockParam | ToolResult, block),
-                            elapsed_time=elapsed_time,
-                            record=True,
-                        )
+        new_tool_call = st.chat_input("Type a tool call to run")
+        if new_tool_call:
+            try:
+                tool_call_params = json.loads(new_tool_call)
+                result = await run_single_tool_call(
+                    tool_version=st.session_state.tool_versions,
+                    tool_name=tool_call_params["name"],
+                    tool_input=tool_call_params["input"],
+                )
 
-        # render past http exchanges
-        for identity, (request, response) in st.session_state.responses.items():
-            _render_api_response(request, response, identity, http_logs)
+                if result:
+                    _tool_output_callback(
+                        result,
+                        str(datetime.now()),
+                        tool_state=st.session_state.tools,
+                        record=False,
+                    )
+                else:
+                    st.info("Tool executed successfully (no output)")
 
-        # render past chats
-        if new_message:
-            st.session_state.messages.append(
-                {
-                    "role": Sender.USER,
-                    "content": [
-                        *maybe_add_interruption_blocks(),
-                        BetaTextBlockParam(type="text", text=new_message),
-                    ],
-                }
-            )
-            _render_message(Sender.USER, new_message, record=True)
+            except json.JSONDecodeError:
+                st.error("Invalid JSON input")
 
-        try:
-            most_recent_message = st.session_state["messages"][-1]
-        except IndexError:
-            return
+    with interactive:
+        chat, http_logs = st.tabs(["Chat", "HTTP Exchange Logs"])
 
-        if most_recent_message["role"] is not Sender.USER:
-            # we don't have a user message to respond to, exit early
-            return
+        new_message = st.chat_input(
+            "Type a message to send to Claude to control the computer..."
+        )
 
-        with track_sampling_loop():
-            # run the agent sampling loop with the newest message
-            (
-                st.session_state.messages,
-                st.session_state.api_call_times,
-            ) = await sampling_loop(
-                system_prompt_suffix=st.session_state.custom_system_prompt,
-                model=st.session_state.model,
-                provider=st.session_state.provider,
-                messages=st.session_state.messages,
-                api_call_times=st.session_state.api_call_times,
-                output_callback=partial(_render_message, Sender.BOT, record=True),
-                tool_output_callback=partial(
-                    _tool_output_callback, tool_state=st.session_state.tools
-                ),
-                api_response_callback=partial(
-                    _api_response_callback,
-                    tab=http_logs,
-                    response_state=st.session_state.responses,
-                ),
-                api_key=st.session_state.api_key,
-                only_n_most_recent_images=st.session_state.only_n_most_recent_images,
-                tool_version=st.session_state.tool_versions,
-                max_tokens=st.session_state.output_tokens,
-                thinking_budget=st.session_state.thinking_budget
-                if st.session_state.thinking
-                else None,
-                token_efficient_tools_beta=st.session_state.token_efficient_tools_beta,
-            )
+        with chat:
+            # render past chats
+            elapsed_time_index = 0
+            for message in st.session_state.messages:
+                if isinstance(message["content"], str):
+                    _render_message(message["role"], message["content"])
+                elif isinstance(message["content"], list):
+                    for block in message["content"]:
+                        # the tool result we send back to the Anthropic API isn't sufficient to render all details,
+                        # so we store the tool use responses
+                        if isinstance(block, dict) and block["type"] == "tool_result":
+                            _render_message(
+                                Sender.TOOL,
+                                st.session_state.tools[block["tool_use_id"]],
+                            )
+                        else:
+                            # Check if this is an assistant text message and we have elapsed times
+                            elapsed_time = None
+                            if (
+                                message["role"] == Sender.BOT
+                                and isinstance(block, dict)
+                                and block.get("type") == "text"
+                                and elapsed_time_index
+                                < len(st.session_state.api_call_times)
+                            ):
+                                elapsed_time = st.session_state.api_call_times[
+                                    elapsed_time_index
+                                ]
+                                elapsed_time_index += 1
+
+                            _render_message(
+                                message["role"],
+                                cast(BetaContentBlockParam | ToolResult, block),
+                                elapsed_time=elapsed_time,
+                                record=True,
+                            )
+
+            # render past http exchanges
+            for identity, (request, response) in st.session_state.responses.items():
+                _render_api_response(request, response, identity, http_logs)
+
+            # render past chats
+            if new_message:
+                st.session_state.messages.append(
+                    {
+                        "role": Sender.USER,
+                        "content": [
+                            *maybe_add_interruption_blocks(),
+                            BetaTextBlockParam(type="text", text=new_message),
+                        ],
+                    }
+                )
+                _render_message(Sender.USER, new_message, record=True)
+
+            try:
+                most_recent_message = st.session_state["messages"][-1]
+            except IndexError:
+                return
+
+            if most_recent_message["role"] is not Sender.USER:
+                # we don't have a user message to respond to, exit early
+                return
+
+            with track_sampling_loop():
+                # run the agent sampling loop with the newest message
+                (
+                    st.session_state.messages,
+                    st.session_state.api_call_times,
+                ) = await sampling_loop(
+                    system_prompt_suffix=st.session_state.custom_system_prompt,
+                    model=st.session_state.model,
+                    provider=st.session_state.provider,
+                    messages=st.session_state.messages,
+                    api_call_times=st.session_state.api_call_times,
+                    output_callback=partial(_render_message, Sender.BOT, record=True),
+                    tool_output_callback=partial(
+                        _tool_output_callback, tool_state=st.session_state.tools
+                    ),
+                    api_response_callback=partial(
+                        _api_response_callback,
+                        tab=http_logs,
+                        response_state=st.session_state.responses,
+                    ),
+                    api_key=st.session_state.api_key,
+                    only_n_most_recent_images=st.session_state.only_n_most_recent_images,
+                    tool_version=st.session_state.tool_versions,
+                    max_tokens=st.session_state.output_tokens,
+                    thinking_budget=st.session_state.thinking_budget
+                    if st.session_state.thinking
+                    else None,
+                    token_efficient_tools_beta=st.session_state.token_efficient_tools_beta,
+                )
 
 
 def maybe_add_interruption_blocks():
@@ -457,11 +503,14 @@ def _api_response_callback(
 
 
 def _tool_output_callback(
-    tool_output: ToolResult, tool_id: str, tool_state: dict[str, ToolResult]
+    tool_output: ToolResult,
+    tool_id: str,
+    tool_state: dict[str, ToolResult],
+    record=True,
 ):
     """Handle a tool output by storing it to state and rendering it."""
     tool_state[tool_id] = tool_output
-    _render_message(Sender.TOOL, tool_output, record=True)
+    _render_message(Sender.TOOL, tool_output, record=record)
 
 
 def _render_api_response(
