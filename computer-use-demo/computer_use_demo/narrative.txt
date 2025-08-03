@@ -36,3 +36,27 @@ So let’s build one that shows the screenshot that is fed into the model, the m
 Let’s also sort the logs by API call time to make it easier to find patterns. (a13e47ca056c905b56299430b1432ffc97323d60)
 
 I first reviewed the chronologically sorted logs (not the time-elapsed-sorted one) and annotated my findings (586f3153fe77ab562994185d9d17aae63dfaf935)
+
+I see two major ways that we waste time:
+1. We make API calls before the action's consequences have loaded, therefore making an API call where the model cannot do anything except wait. This means we waste time on the API call itself and the subsequent wait.
+2. We make API calls only to detect whether the previous tool call has successfully taken place, e.g. making sure that a text field is in focus or that the right characters have been typed into the text field.
+
+It is a waste to summon our complex reasoning model to detect these small events. There has to be a better way. I propose the following solutions:
+1. Increase the max wait time – this is the amount of time it takes before we stop relying on simple heuristics like whether the screen has changed. We should avoid model calls whenever necessary. If we're waiting for 2 seconds, which is far less than the the 4-6 seconds we're seeing in each model call, it's likely that is not yet "necesssary" to bring on the big guns. For example, if we set the timeout to 5 seconds, then at worst we waste 5 seconds if we find a false negative, and if the page actually loads after 5.1s, which means the model will still waste 4s to decide to wait another 3s, adding up to a total overhead of 5s, we've only slightly-more-than-doubled the wait time. On the other hand, if the wait time is 2 seconds and it actually loads in 2.1s, the 7s overhead would have more-than-quadrupled the wait time.
+2. Use a lightweight method to detect whether a page has loaded. Maybe train a CNN binary classifier to detect whether a screenshot displays a loading screen.
+3. Use a lightweight method to detect whether a text field is in focus
+4. Use a lightweight method to detect whether a text field contains the expected characters.
+
+To make testing easier, I grouped the "Chat" and "HTTP Exchange Logs" tabs under an "Interactive" tab and added a "Dev" tab where we can manually call tools. For example, to click on the Firefox icon, enter this into the text field:
+
+{ "name": "computer", "input": { "action": "left_click", "coordinate": [804, 738] } }
+
+And to close the Firefox window, enter this:
+
+{ "name": "computer", "input": { "action": "left_click", "coordinate": [1020, 4] } }
+
+In the same commit, I increased the change-watching timeout to 5 seconds.
+
+(f4388148af7575fdeaea07d126a42dfbd07537f1)
+
+Next, let's develop a lightweight method to detect whether we're seeing a loading page.
